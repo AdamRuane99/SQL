@@ -1,0 +1,124 @@
+-- Fund Last Month Perf and YTD Perf -- 
+WITH OLDLAND AS(
+SELECT EOMONTH(DATE) as Month_end, mgrCode, DBCode, RIGHT(DBCODE, 4) AS Short_Code, SUM(Fund) as Fund_Performance
+FROM MED_EDW.landing.allDelPerf
+GROUP BY mgrCode, Date, DBCode) 
+
+,		  sc as 
+(
+SELECT *,
+EOMONTH(dateadd(DD, -1, dateadd(YY,datediff(yy,0,Month_end),0))) as DateSOY2
+FROM  OLDLAND
+)
+,  sc2 as
+(
+select	a.*, b.Fund_Performance as PerfLY
+from sc as a
+left join sc as b on a.DBCode=b.DBCode and a.mgrCode=b.mgrCode and EOMONTH(a.DateSOY2) =EOMONTH(b.Month_end)
+)
+,
+	  sc3 as 
+(
+SELECT *,
+EOMONTH(dateadd(m,-1, Month_end)) as pmonth
+FROM  OLDLAND
+)
+,
+sc4 as 
+(
+select	a.*, b.Fund_Performance as PerfLM
+from sc3 as a
+left join sc as b on a.DBCode=b.DBCode and a.mgrCode=b.mgrCode and EOMONTH(a.pmonth) = EOMONTH(b.Month_end)
+)
+,
+LANDPERF AS( 
+SELECT *, ((Fund_Performance - PerfLY) / PerfLY) as Fund_performanceYTD 
+FROM sc2)
+,
+LANDPERF2 AS( 
+SELECT *, ((Fund_Performance - PerfLM) / PerfLM) as Fund_performanceLM
+FROM sc4)
+,
+DISTINCTMAN AS(
+SELECT DISTINCT mgrCode
+FROM sc4) 
+, 
+DISTINCTFund AS( 
+SELECT DISTINCT DBCode
+FROM sc4
+)
+
+SELECT LANDPERF2.*, LANDPERF.Fund_performanceYTD
+FROM LANDPERF2
+LEFT JOIN DISTINCTMAN ON DISTINCTMAN.mgrCode = LANDPERF2.mgrCode
+LEFT JOIN DISTINCTFund ON DISTINCTFund.DBCode = LANDPERF2.DBCode
+LEFT JOIN LANDPERF ON DISTINCTFund.DBCode= LANDPERF.DBCode and DISTINCTMAN.mgrCode = LANDPERF.mgrCode and LANDPERF2.Month_end = LANDPERF.Month_end
+WHERE LANDPERF2.DBCode = 'DB6502'
+
+-------------------
+WITH OLDPERF AS(
+SELECT EOMONTH(date) as date, DelCode ,DBCode, AUM, PortIndex, SAAIndex, DelegateManager
+FROM [MED_EDW].[fusion].[vw_Fusion_PL_delegate_performance]
+where DAY(Date) = (
+  SELECT  CASE WHEN DATENAME(DW, (EOMONTH(Date))) = 'SATURDAY' THEN 
+  DAY(EOMONTH(Date))-1 WHEN DATENAME(DW, (EOMONTH(Date))) = 'SUNDAY' THEN
+ DAY(EOMONTH(Date))-2 ELSE DAY(EOMONTH(Date)) END)
+)
+
+,		  sq as 
+(
+SELECT *,
+EOMONTH(dateadd(DD, -1, dateadd(YY,datediff(yy,0,Date),0))) as DateSOY
+FROM  OLDPERF
+)
+,  sq2 as
+(
+select	a.*, b.PortIndex as PortIndexLY, b.SAAIndex as [SaaIndxLY]
+from sq as a
+left join sq as b on a.DBCode=b.DBCode and a.DelCode=b.DelCode and a.DateSOY=b.Date)
+,
+
+	  sq3 as 
+(
+SELECT *,
+EOMONTH(dateadd(m,-1, date)) as pmonth
+FROM  OLDPERF
+)
+,
+sq4 as 
+(
+select	a.*, b.portindex as PerfLM
+from sq3 as a
+left join sq3 as b on a.DBCode=b.DBCode and a.DelCode=b.DelCode and EOMONTH(a.pmonth) = EOMONTH(b.date)
+)
+,
+MIFL_PERF AS(
+SELECT * , ((PortIndex - PortIndexLY)/PortIndexLY) as Returns_YTD
+FROM SQ2
+WHERE DelegateManager = 'MIFL')
+
+,LANDPERF2 AS( 
+SELECT *, ((PortIndex - PerfLM) / PerfLM) as Returns_LM
+FROM sq4)
+,
+DISTINCTMAN AS(
+SELECT DISTINCT DelCode
+FROM sq4) 
+, 
+DISTINCTFund AS( 
+SELECT DISTINCT DBCode
+FROM sq4
+)
+
+, 
+NEWMIFL_PERF AS(
+SELECT EOMONTH(MIFL_PERF.Date) as [Month End], MIFL_PERF.DelCode, MIFL_PERF.DBCode, Returns_YTD, LANDPERF2.Returns_LM
+FROM MIFL_PERF
+LEFT JOIN DISTINCTMAN ON DISTINCTMAN.DelCode = MIFL_PERF.DelCode
+LEFT JOIN DISTINCTFund ON DISTINCTFund.DBCode = MIFL_PERF.DBCode
+LEFT JOIN LANDPERF2 ON DISTINCTFund.DBCode= LANDPERF2.DBCode and DISTINCTMAN.DelCode = LANDPERF2.DelCode and MIFL_PERF.date = LANDPERF2.date
+
+WHERE mifl_perf.DBCode ='DB6502')
+
+SELECT * 
+FROM NEWMIFL_PERF

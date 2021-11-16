@@ -1,0 +1,55 @@
+/****** Script for SelectTopNRows command from SSMS  ******/
+SELECT  SUM(TRY_CONVERT(FLOAT,[Daily Adjustment Crytallized])) as Fee
+  FROM [MED_EDW].[stage].[s_PFCDV]
+  WHERE LEFT([NAV DATE], 4) = '2021'
+  AND ISIN LIKE 'LU%'
+  GROUP BY [NAV Date]
+    Order by [NAV Date] DESC
+
+	--Daily Adjustment Crytallized--
+
+
+	--Daily Adjustment Crytallized--
+	
+	
+
+
+  SET ANSI_WARNINGS OFF
+SET ARITHABORT OFF;
+
+
+WITH CTE AS(
+SELECT [Month End] [Month_End], ISIN, SUM([Monthly Outflows]) [Redemptions] ,SUM([YTD Outflows]) as [YTD Redemptions],[Country of Distribution] [Country], [Type], [Dealer name]
+FROM MED_EDW.edw.Sales_Report_Monthly_Flows
+Group by [Month End], ISIN, [Country of Distribution],[Type], [Dealer name]) 
+
+, PRORATA AS(
+SELECT [Month_End], ISIN, Country, Type, [Dealer name] ,SUM([YTD Redemptions]) as [YTD Redemptions], SUM(Redemptions) as Redemptions,
+       (SUM([YTD Redemptions]) * 100.0 /SUM(SUM([YTD Redemptions])) OVER (Partition by ISIN, [Month_End])/100) AS [ProRata %]
+FROM CTE
+Group by [Month_End], ISIN, Country, Type, [Dealer name])
+,
+ CTE2 AS (SELECT  EOMONTH(cast(cast([NAV Date] as varchar(10)) as date)) AS [Month End], [Fund Name] ,ISIN 
+,SUM(TRY_CONVERT(FLOAT,[Daily Adjustment Crytallized])) as Fee_Crystallised 
+ FROM [MED_EDW].[stage].[s_PFCDV]
+ Group by  EOMONTH(cast(cast([NAV Date] as varchar(10)) as date)) , ISIN, [Fund Name]
+) 
+,
+[Data] AS(
+SELECT *, 
+SUM(Fee_Crystallised) over(partition by ISIN, YEAR([Month End]) order by Year([Month End]),[Month End] rows unbounded preceding) as YTD_Fee_Crystallised
+FROM CTE2)
+
+,
+
+DISTINCTISIN AS(
+SELECT DISTINCT ISIN
+FROM PRORATA
+)
+
+
+SELECT PRORATA.* , (Data.Fee_Crystallised * [ProRata %]) as Fee_Crystalised ,(Data.YTD_Fee_Crystallised * [ProRata %]) as YTD_Fee_Crystalised, [Fund Name]
+FROM PRORATA
+LEFT JOIN DISTINCTISIN ON DISTINCTISIN.ISIN = PRORATA.ISIN
+LEFT JOIN [Data] On Data.ISIN = DISTINCTISIN.ISIN and PRORATA.[Month_End] = Data.[Month End]
+
